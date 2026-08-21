@@ -8,9 +8,57 @@ from PIL import Image
 from deep_translator import GoogleTranslator
 
 # --- PAGE CONFIGURATION ---
-st.set_page_config(page_title="🌍 Landmark Explorer", page_icon="🗺️", layout="centered")
+st.set_page_config(
+    page_title="🌍 Landmark Explorer",
+    page_icon="🗺️",
+    layout="centered",
+    initial_sidebar_state="collapsed"
+)
 
-# --- API KEY & SECRETS CONFIGURATION ---
+# --- ADAPTIVE CSS FOR DESKTOP & MOBILE ---
+st.markdown("""
+    <style>
+    .main-header {
+        text-align: center;
+        padding-bottom: 10px;
+    }
+    .main-title {
+        font-weight: 700;
+        margin-bottom: 5px;
+    }
+    .main-subtitle {
+        opacity: 0.8;
+    }
+    .output-box {
+        background-color: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+        padding: 18px;
+        margin-top: 15px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        font-size: 16px;
+        line-height: 1.6;
+    }
+
+    /* Desktop View */
+    @media (min-width: 768px) {
+        .main-title { font-size: 2.5rem; }
+        .main-subtitle { font-size: 1.1rem; }
+    }
+
+    /* Mobile View */
+    @media (max-width: 767px) {
+        .main-title { font-size: 1.7rem; }
+        .main-subtitle { font-size: 0.9rem; }
+        .block-container {
+            padding-top: 1.5rem !important;
+            padding-left: 0.8rem !important;
+            padding-right: 0.8rem !important;
+        }
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- API KEY & SECRETS ---
 api_key = st.secrets.get("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
 if not api_key:
@@ -19,17 +67,29 @@ if not api_key:
 
 genai.configure(api_key=api_key)
 
-# --- HELPER FUNCTIONS ---
-def get_gemini_response(image, prompt):
+# --- OPTIMIZED HELPER FUNCTIONS ---
+def get_gemini_response(image_data, prompt):
     model = genai.GenerativeModel('gemini-3.6-flash')
-    response = model.generate_content([prompt, image[0]])
+    response = model.generate_content([prompt, image_data[0]])
     return response.text
 
-def input_image_setup(uploaded_file):
-    if uploaded_file:
-        bytes_data = uploaded_file.getvalue()
-        return [{"mime_type": uploaded_file.type, "data": bytes_data}]
-    raise FileNotFoundError("No file uploaded")
+def process_and_compress_image(uploaded_file, max_size=(1024, 1024), quality=80):
+    """Resizes and compresses images for fast mobile uploading."""
+    image = Image.open(uploaded_file)
+    
+    if image.mode in ("RGBA", "P"):
+        image = image.convert("RGB")
+        
+    image.thumbnail(max_size, Image.Resampling.LANCZOS)
+    
+    buffered = BytesIO()
+    image.save(buffered, format="JPEG", quality=quality, optimize=True)
+    compressed_bytes = buffered.getvalue()
+    
+    return image, compressed_bytes
+
+def input_image_setup(compressed_bytes):
+    return [{"mime_type": "image/jpeg", "data": compressed_bytes}]
 
 def translate_text(text, target_lang):
     if target_lang == "en":
@@ -38,7 +98,7 @@ def translate_text(text, target_lang):
 
 def get_image_base64(img):
     buffered = BytesIO()
-    img.save(buffered, format="PNG")
+    img.save(buffered, format="JPEG")
     return base64.b64encode(buffered.getvalue()).decode()
 
 # --- STATE MANAGEMENT ---
@@ -50,18 +110,17 @@ if 'result' not in st.session_state:
 
 # --- MAIN HEADER ---
 st.markdown("""
-    <div style="text-align:center">
-        <h1 style="color:#2c3e50;">🗺️ Gemini Landmark Explorer</h1>
-        <p style="font-size:18px;">Upload a photo of a landmark, and let AI tell its story!</p>
+    <div class="main-header">
+        <h1 class="main-title">🗺️ Gemini Landmark Explorer</h1>
+        <p class="main-subtitle">Upload a landmark photo to discover its history!</p>
     </div>
     """, unsafe_allow_html=True)
-st.markdown("---")
 
-# --- CONTROLS SECTION ---
+# --- CONTROLS SECTION (Columns auto-stack on Mobile) ---
 col1, col2 = st.columns(2)
 
 with col1:
-    selected_language = st.selectbox("🌐 Language", {
+    selected_language = st.selectbox("🌐 Target Language", {
         "English": "en", "Hindi": "hi", "Bengali": "bn", "Marathi": "mr",
         "Tamil": "ta", "Telugu": "te", "Gujarati": "gu", "Punjabi": "pa",
         "Kannada": "kn", "Malayalam": "ml", "Spanish": "es", "French": "fr",
@@ -70,7 +129,7 @@ with col1:
     })
 
 with col2:
-    scenario = st.selectbox("🎯 Scenario", [
+    scenario = st.selectbox("🎯 Exploration Scenario", [
         "Discovering Iconic Landmarks (Traveler)",
         "Tour Guide Assistance",
         "Virtual Tours and Educational Resources",
@@ -83,7 +142,7 @@ with st.sidebar:
     st.subheader("📜 Past Descriptions")
     if st.session_state.history:
         for i, past in enumerate(reversed(st.session_state.history[-5:]), 1):
-            st.markdown(f"**{i}.** {past[:100]}...")
+            st.markdown(f"**{i}.** {past[:90]}...")
     else:
         st.write("No history yet.")
 
@@ -119,48 +178,54 @@ scenario_prompts = {
     """
 }
 
-# --- UPLOAD & PROCESSING SECTION ---
+# --- UPLOAD SECTION ---
 uploaded_file = st.file_uploader("📤 Upload a Landmark Photo", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
-    image = Image.open(uploaded_file)
-    img_base64 = get_image_base64(image)
+    # Process & compress image for fast performance
+    compressed_img, compressed_bytes = process_and_compress_image(uploaded_file)
+    img_base64 = get_image_base64(compressed_img)
 
     st.markdown(
         f"""
-        <div style="display: flex; justify-content: center; margin: 20px 0;">
-            <img src="data:image/png;base64,{img_base64}" 
-                 style="max-width: 100%; height: auto; max-height: 300px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);" />
+        <div style="display: flex; justify-content: center; margin: 15px 0;">
+            <img src="data:image/jpeg;base64,{img_base64}" 
+                 style="max-width: 100%; height: auto; max-height: 250px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);" />
         </div>
         """, unsafe_allow_html=True
     )
 
-    # Trigger action button
-    submit = st.button("🔍 Discover Landmark Info", use_container_width=True)
+submit = st.button("🔍 Discover Landmark Info", use_container_width=True)
 
-    if submit:
+if submit:
+    if not uploaded_file:
+        st.warning("Please upload a photo first to analyze!")
+    else:
         try:
-            image_data = input_image_setup(uploaded_file)
+            # Compress image before sending payload to API
+            _, compressed_bytes = process_and_compress_image(uploaded_file)
+            image_data = input_image_setup(compressed_bytes)
             prompt = scenario_prompts[scenario]
             
-            with st.spinner(f"🔎 Analyzing landmark using scenario: {scenario}"):
+            with st.spinner(f"⚡ Fast-analyzing landmark..."):
                 description = get_gemini_response(image_data, prompt)
                 translated = translate_text(description, selected_language)
 
-                # Store result in session state to survive re-renders
                 st.session_state.result = translated
                 st.session_state.history.append(translated)
 
         except Exception as e:
             st.error(f"⚠️ Error: {str(e)}")
 
-# Display persistent results if present
+# --- DISPLAY RESULTS ---
 if st.session_state.result and uploaded_file:
-    st.success("✅ Description Ready!")
-    st.markdown("### 📖 Landmark Information")
-    st.markdown(f"<div style='max-width:700px; margin:auto; font-size:17px;'>{st.session_state.result}</div>", unsafe_allow_html=True)
+    st.markdown("---")
+    st.success("✅ Analysis Complete!")
+    st.markdown("### 📖 Landmark Details")
+    st.markdown(f'<div class="output-box">{st.session_state.result}</div>', unsafe_allow_html=True)
 
-    filename = f"landmark_description_{uuid.uuid4().hex[:8]}.txt"
+    filename = f"landmark_{uuid.uuid4().hex[:8]}.txt"
+    st.write("")
     st.download_button(
         label="📥 Download Description",
         data=st.session_state.result,
@@ -168,5 +233,3 @@ if st.session_state.result and uploaded_file:
         mime="text/plain",
         use_container_width=True
     )
-elif not uploaded_file:
-    st.info("Please upload an image to get started.")
