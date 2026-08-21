@@ -6,6 +6,12 @@ import streamlit as st
 import google.generativeai as genai
 from PIL import Image
 
+# ReportLab Imports for PDF Generation
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage
+from reportlab.lib import colors
+
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
     page_title="🌍 Landmark Explorer",
@@ -28,14 +34,13 @@ st.markdown("""
     .main-subtitle {
         opacity: 0.8;
     }
-    .output-box {
+
+    [data-testid="stVerticalBlock"] > div:has(div.result-card) {
         background-color: rgba(255, 255, 255, 0.05);
-        border-radius: 10px;
-        padding: 18px;
-        margin-top: 15px;
+        border-radius: 12px;
+        padding: 24px;
         border: 1px solid rgba(255, 255, 255, 0.1);
-        font-size: 16px;
-        line-height: 1.6;
+        margin-top: 10px;
     }
 
     @media (min-width: 768px) {
@@ -67,7 +72,7 @@ genai.configure(api_key=api_key)
 # --- HELPER FUNCTIONS ---
 def get_gemini_response(image_data, prompt, target_language):
     model = genai.GenerativeModel('gemini-3.6-flash')
-    full_prompt = f"{prompt}\n\nIMPORTANT: Write your entire response in {target_language}."
+    full_prompt = f"{prompt}\n\nIMPORTANT: Write your entire response in {target_language}. Format the response clearly using clean Markdown."
     response = model.generate_content([full_prompt, image_data[0]])
     return response.text
 
@@ -91,6 +96,59 @@ def get_image_base64(img):
     buffered = BytesIO()
     img.save(buffered, format="JPEG")
     return base64.b64encode(buffered.getvalue()).decode()
+
+def create_pdf(image_pil, description_text):
+    """Generates a PDF document with the image and text description."""
+    pdf_buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        pdf_buffer,
+        pagesize=letter,
+        rightMargin=40,
+        leftMargin=40,
+        topMargin=40,
+        bottomMargin=40
+    )
+    
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=18, leading=22, textColor=colors.HexColor("#2C3E50"))
+    body_style = ParagraphStyle('BodyStyle', parent=styles['BodyText'], fontSize=11, leading=16, textColor=colors.HexColor("#333333"))
+
+    story = []
+    
+    # PDF Title
+    story.append(Paragraph("🗺️ Gemini Landmark Analysis", title_style))
+    story.append(Spacer(1, 15))
+    
+    # Process & Scale Image for PDF
+    img_buffer = BytesIO()
+    image_pil.save(img_buffer, format="JPEG")
+    img_buffer.seek(0)
+    
+    # Scale image maintaining aspect ratio
+    img_w, img_h = image_pil.size
+    aspect = img_h / float(img_w)
+    pdf_img_w = 400
+    pdf_img_h = 400 * aspect
+    
+    if pdf_img_h > 300:
+        pdf_img_h = 300
+        pdf_img_w = 300 / aspect
+
+    story.append(RLImage(img_buffer, width=pdf_img_w, height=pdf_img_h))
+    story.append(Spacer(1, 20))
+    
+    # Convert Description Text line-by-line into Paragraph elements
+    for line in description_text.split('\n'):
+        if line.strip():
+            # Basic markdown cleanup for PDF compatibility
+            clean_line = line.replace('***', '').replace('**', '<b>').replace('**', '</b>')
+            clean_line = clean_line.replace('###', '').replace('##', '')
+            story.append(Paragraph(clean_line, body_style))
+            story.append(Spacer(1, 6))
+
+    doc.build(story)
+    pdf_buffer.seek(0)
+    return pdf_buffer.getvalue()
 
 # --- STATE MANAGEMENT ---
 if 'history' not in st.session_state:
@@ -191,7 +249,7 @@ if submit:
         st.warning("Please upload a photo first to analyze!")
     else:
         try:
-            _, compressed_bytes = process_and_compress_image(uploaded_file)
+            compressed_img, compressed_bytes = process_and_compress_image(uploaded_file)
             image_data = input_image_setup(compressed_bytes)
             prompt = scenario_prompts[scenario]
             
@@ -204,19 +262,26 @@ if submit:
         except Exception as e:
             st.error(f"⚠️ Error: {str(e)}")
 
-# --- DISPLAY RESULTS ---
+# --- DISPLAY RESULTS & PDF DOWNLOAD ---
 if st.session_state.result and uploaded_file:
     st.markdown("---")
     st.success("✅ Analysis Complete!")
     st.markdown("### 📖 Landmark Details")
-    st.markdown(f'<div class="output-box">{st.session_state.result}</div>', unsafe_allow_html=True)
+    
+    with st.container():
+        st.markdown('<div class="result-card"></div>', unsafe_allow_html=True)
+        st.markdown(st.session_state.result)
 
-    filename = f"landmark_{uuid.uuid4().hex[:8]}.txt"
+    # Generate PDF with compressed image + description
+    compressed_img, _ = process_and_compress_image(uploaded_file)
+    pdf_bytes = create_pdf(compressed_img, st.session_state.result)
+
+    filename = f"landmark_report_{uuid.uuid4().hex[:8]}.pdf"
     st.write("")
     st.download_button(
-        label="📥 Download Description",
-        data=st.session_state.result,
+        label="📄 Download PDF Report (With Photo)",
+        data=pdf_bytes,
         file_name=filename,
-        mime="text/plain",
+        mime="application/pdf",
         use_container_width=True
     )
