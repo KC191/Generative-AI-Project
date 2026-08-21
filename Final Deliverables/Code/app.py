@@ -11,7 +11,6 @@ from deep_translator import GoogleTranslator
 st.set_page_config(page_title="🌍 Landmark Explorer", page_icon="🗺️", layout="centered")
 
 # --- API KEY & SECRETS CONFIGURATION ---
-# Checks Streamlit Cloud Secrets first, then falls back to system environment variables
 api_key = st.secrets.get("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
 if not api_key:
@@ -46,6 +45,9 @@ def get_image_base64(img):
 if 'history' not in st.session_state:
     st.session_state.history = []
 
+if 'result' not in st.session_state:
+    st.session_state.result = None
+
 # --- MAIN HEADER ---
 st.markdown("""
     <div style="text-align:center">
@@ -55,7 +57,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 st.markdown("---")
 
-# --- CONTROLS SECTION (MOBILE FRIENDLY) ---
+# --- CONTROLS SECTION ---
 col1, col2 = st.columns(2)
 
 with col1:
@@ -75,7 +77,7 @@ with col2:
         "Personal Exploration and Curiosity"
     ])
 
-# --- SIDEBAR (HISTORY ONLY) ---
+# --- SIDEBAR (HISTORY) ---
 with st.sidebar:
     st.title("🧭 Explorer Panel")
     st.subheader("📜 Past Descriptions")
@@ -133,29 +135,38 @@ if uploaded_file:
         """, unsafe_allow_html=True
     )
 
-    if st.button("🔍 Discover Landmark Info", use_container_width=True):
+    # Trigger action button
+    submit = st.button("🔍 Discover Landmark Info", use_container_width=True)
+
+    if submit:
         try:
             image_data = input_image_setup(uploaded_file)
             prompt = scenario_prompts[scenario]
+            
             with st.spinner(f"🔎 Analyzing landmark using scenario: {scenario}"):
                 description = get_gemini_response(image_data, prompt)
                 translated = translate_text(description, selected_language)
 
-                st.success("✅ Description Ready!")
-                st.markdown("### 📖 Landmark Information")
-                st.markdown(f"<div style='max-width:700px; margin:auto; font-size:17px;'>{translated}</div>", unsafe_allow_html=True)
-
+                # Store result in session state to survive re-renders
+                st.session_state.result = translated
                 st.session_state.history.append(translated)
 
-                filename = f"landmark_description_{uuid.uuid4().hex[:8]}.txt"
-                st.download_button(
-                    label="📥 Download Description",
-                    data=translated,
-                    file_name=filename,
-                    mime="text/plain",
-                    use_container_width=True
-                )
         except Exception as e:
             st.error(f"⚠️ Error: {str(e)}")
-else:
+
+# Display persistent results if present
+if st.session_state.result and uploaded_file:
+    st.success("✅ Description Ready!")
+    st.markdown("### 📖 Landmark Information")
+    st.markdown(f"<div style='max-width:700px; margin:auto; font-size:17px;'>{st.session_state.result}</div>", unsafe_allow_html=True)
+
+    filename = f"landmark_description_{uuid.uuid4().hex[:8]}.txt"
+    st.download_button(
+        label="📥 Download Description",
+        data=st.session_state.result,
+        file_name=filename,
+        mime="text/plain",
+        use_container_width=True
+    )
+elif not uploaded_file:
     st.info("Please upload an image to get started.")
