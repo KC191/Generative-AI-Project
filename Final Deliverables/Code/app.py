@@ -1,6 +1,8 @@
 import os
 import uuid
 import base64
+import html
+import re
 from io import BytesIO
 import streamlit as st
 import google.generativeai as genai
@@ -35,6 +37,7 @@ st.markdown("""
         opacity: 0.8;
     }
 
+    /* Styled Container for Markdown Output */
     [data-testid="stVerticalBlock"] > div:has(div.result-card) {
         background-color: rgba(255, 255, 255, 0.05);
         border-radius: 12px;
@@ -60,7 +63,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- API KEY & SECRETS ---
+# --- API KEY & SECRETS CONFIGURATION ---
 api_key = st.secrets.get("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
 if not api_key:
@@ -77,6 +80,7 @@ def get_gemini_response(image_data, prompt, target_language):
     return response.text
 
 def process_and_compress_image(uploaded_file, max_size=(1024, 1024), quality=80):
+    """Resizes and compresses image to optimize speed on mobile connections."""
     image = Image.open(uploaded_file)
     if image.mode in ("RGBA", "P"):
         image = image.convert("RGB")
@@ -98,7 +102,7 @@ def get_image_base64(img):
     return base64.b64encode(buffered.getvalue()).decode()
 
 def create_pdf(image_pil, description_text):
-    """Generates a PDF document with the image and text description."""
+    """Generates a PDF document with the image and text description safely."""
     pdf_buffer = BytesIO()
     doc = SimpleDocTemplate(
         pdf_buffer,
@@ -110,12 +114,24 @@ def create_pdf(image_pil, description_text):
     )
     
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=18, leading=22, textColor=colors.HexColor("#2C3E50"))
-    body_style = ParagraphStyle('BodyStyle', parent=styles['BodyText'], fontSize=11, leading=16, textColor=colors.HexColor("#333333"))
+    title_style = ParagraphStyle(
+        'TitleStyle', 
+        parent=styles['Heading1'], 
+        fontSize=18, 
+        leading=22, 
+        textColor=colors.HexColor("#2C3E50")
+    )
+    body_style = ParagraphStyle(
+        'BodyStyle', 
+        parent=styles['BodyText'], 
+        fontSize=11, 
+        leading=16, 
+        textColor=colors.HexColor("#333333")
+    )
 
     story = []
     
-    # PDF Title
+    # Header
     story.append(Paragraph("🗺️ Gemini Landmark Analysis", title_style))
     story.append(Spacer(1, 15))
     
@@ -124,7 +140,6 @@ def create_pdf(image_pil, description_text):
     image_pil.save(img_buffer, format="JPEG")
     img_buffer.seek(0)
     
-    # Scale image maintaining aspect ratio
     img_w, img_h = image_pil.size
     aspect = img_h / float(img_w)
     pdf_img_w = 400
@@ -137,13 +152,31 @@ def create_pdf(image_pil, description_text):
     story.append(RLImage(img_buffer, width=pdf_img_w, height=pdf_img_h))
     story.append(Spacer(1, 20))
     
-    # Convert Description Text line-by-line into Paragraph elements
+    # Process text safely line by line to prevent XML parsing crashes
     for line in description_text.split('\n'):
-        if line.strip():
-            # Basic markdown cleanup for PDF compatibility
-            clean_line = line.replace('***', '').replace('**', '<b>').replace('**', '</b>')
-            clean_line = clean_line.replace('###', '').replace('##', '')
+        line_str = line.strip()
+        if not line_str:
+            continue
+
+        # 1. Remove Markdown headers (###, ##, #)
+        line_str = re.sub(r'^#{1,6}\s*', '', line_str)
+
+        # 2. Escape reserved HTML characters (<, >, &)
+        clean_line = html.escape(line_str)
+
+        # 3. Convert Markdown bold (**text**) -> ReportLab <b>text</b>
+        clean_line = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', clean_line)
+
+        # 4. Convert Markdown italic (*text*) -> ReportLab <i>text</i>
+        clean_line = re.sub(r'\*(.*?)\*', r'<i>\1</i>', clean_line)
+
+        try:
             story.append(Paragraph(clean_line, body_style))
+            story.append(Spacer(1, 6))
+        except Exception:
+            # Fallback: strip inline formatting if an edge-case parse error occurs
+            raw_text = html.escape(line_str.replace('*', ''))
+            story.append(Paragraph(raw_text, body_style))
             story.append(Spacer(1, 6))
 
     doc.build(story)
@@ -272,7 +305,7 @@ if st.session_state.result and uploaded_file:
         st.markdown('<div class="result-card"></div>', unsafe_allow_html=True)
         st.markdown(st.session_state.result)
 
-    # Generate PDF with compressed image + description
+    # Build safe PDF with compressed image + description
     compressed_img, _ = process_and_compress_image(uploaded_file)
     pdf_bytes = create_pdf(compressed_img, st.session_state.result)
 
