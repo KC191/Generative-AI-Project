@@ -3,7 +3,7 @@ import streamlit as st
 import os
 import google.generativeai as genai
 from PIL import Image
-from googletrans import Translator
+from deep_translator import GoogleTranslator
 import uuid
 import base64
 from io import BytesIO
@@ -15,7 +15,6 @@ load_dotenv()
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 # Translator and History Setup
-translator = Translator()
 if 'history' not in st.session_state:
     st.session_state.history = []
 
@@ -34,7 +33,9 @@ def input_image_setup(uploaded_file):
 
 # Translate
 def translate_text(text, target_lang):
-    return text if target_lang == "en" else translator.translate(text, dest=target_lang).text
+    if target_lang == "en":
+        return text
+    return GoogleTranslator(source='auto', target=target_lang).translate(text)
 
 # Image to base64
 def get_image_base64(img):
