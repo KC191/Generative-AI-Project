@@ -22,7 +22,7 @@ genai.configure(api_key=api_key)
 
 # --- HELPER FUNCTIONS ---
 def get_gemini_response(image, prompt):
-    model = genai.GenerativeModel('gemini-2.0-flash-001')
+    model = genai.GenerativeModel('gemini-2.5-flash')
     response = model.generate_content([prompt, image[0]])
     return response.text
 
