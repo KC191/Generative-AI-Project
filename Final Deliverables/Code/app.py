@@ -1,50 +1,50 @@
-from dotenv import load_dotenv
-import streamlit as st
 import os
-import google.generativeai as genai
-from PIL import Image
-from deep_translator import GoogleTranslator
 import uuid
 import base64
 from io import BytesIO
+import streamlit as st
+import google.generativeai as genai
+from PIL import Image
+from deep_translator import GoogleTranslator
 
-# Load environment variables
-load_dotenv()
+# --- PAGE CONFIGURATION ---
+st.set_page_config(page_title="🌍 Landmark Explorer", page_icon="🗺️", layout="centered")
 
-# Configure Gemini
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+# --- API KEY & SECRETS CONFIGURATION ---
+# Checks Streamlit Cloud Secrets first, then falls back to system environment variables
+api_key = st.secrets.get("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
-# Translator and History Setup
-if 'history' not in st.session_state:
-    st.session_state.history = []
+if not api_key:
+    st.error("⚠️ GOOGLE_API_KEY is missing! Please configure it in Streamlit Secrets or environment variables.")
+    st.stop()
 
-# Gemini response function
+genai.configure(api_key=api_key)
+
+# --- HELPER FUNCTIONS ---
 def get_gemini_response(image, prompt):
     model = genai.GenerativeModel('gemini-2.0-flash-001')
     response = model.generate_content([prompt, image[0]])
     return response.text
 
-# Image setup
 def input_image_setup(uploaded_file):
     if uploaded_file:
         bytes_data = uploaded_file.getvalue()
         return [{"mime_type": uploaded_file.type, "data": bytes_data}]
     raise FileNotFoundError("No file uploaded")
 
-# Translate
 def translate_text(text, target_lang):
     if target_lang == "en":
         return text
     return GoogleTranslator(source='auto', target=target_lang).translate(text)
 
-# Image to base64
 def get_image_base64(img):
     buffered = BytesIO()
     img.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode()
 
-# Set page
-st.set_page_config(page_title="🌍 Landmark Explorer", page_icon="🗺️", layout="centered")
+# --- STATE MANAGEMENT ---
+if 'history' not in st.session_state:
+    st.session_state.history = []
 
 # --- SIDEBAR ---
 st.sidebar.title("🧭 Explorer Panel")
@@ -82,7 +82,6 @@ st.markdown("""
     """, unsafe_allow_html=True)
 st.markdown("---")
 
-# Scenario prompts
 scenario_prompts = {
     "Discovering Iconic Landmarks (Traveler)": """
         You are a helpful travel assistant. Analyze the image of the landmark and describe:
@@ -114,7 +113,7 @@ scenario_prompts = {
     """
 }
 
-# Upload section
+# Upload Section
 uploaded_file = st.file_uploader("📤 Upload a Landmark Photo", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
