@@ -5,7 +5,6 @@ from io import BytesIO
 import streamlit as st
 import google.generativeai as genai
 from PIL import Image
-from deep_translator import GoogleTranslator
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -15,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- ADAPTIVE CSS FOR DESKTOP & MOBILE ---
+# --- ADAPTIVE CSS FOR MOBILE & DESKTOP ---
 st.markdown("""
     <style>
     .main-header {
@@ -39,13 +38,11 @@ st.markdown("""
         line-height: 1.6;
     }
 
-    /* Desktop View */
     @media (min-width: 768px) {
         .main-title { font-size: 2.5rem; }
         .main-subtitle { font-size: 1.1rem; }
     }
 
-    /* Mobile View */
     @media (max-width: 767px) {
         .main-title { font-size: 1.7rem; }
         .main-subtitle { font-size: 0.9rem; }
@@ -67,16 +64,15 @@ if not api_key:
 
 genai.configure(api_key=api_key)
 
-# --- OPTIMIZED HELPER FUNCTIONS ---
-def get_gemini_response(image_data, prompt):
+# --- HELPER FUNCTIONS ---
+def get_gemini_response(image_data, prompt, target_language):
     model = genai.GenerativeModel('gemini-3.6-flash')
-    response = model.generate_content([prompt, image_data[0]])
+    full_prompt = f"{prompt}\n\nIMPORTANT: Write your entire response in {target_language}."
+    response = model.generate_content([full_prompt, image_data[0]])
     return response.text
 
 def process_and_compress_image(uploaded_file, max_size=(1024, 1024), quality=80):
-    """Resizes and compresses images for fast mobile uploading."""
     image = Image.open(uploaded_file)
-    
     if image.mode in ("RGBA", "P"):
         image = image.convert("RGB")
         
@@ -90,11 +86,6 @@ def process_and_compress_image(uploaded_file, max_size=(1024, 1024), quality=80)
 
 def input_image_setup(compressed_bytes):
     return [{"mime_type": "image/jpeg", "data": compressed_bytes}]
-
-def translate_text(text, target_lang):
-    if target_lang == "en":
-        return text
-    return GoogleTranslator(source='auto', target=target_lang).translate(text)
 
 def get_image_base64(img):
     buffered = BytesIO()
@@ -116,17 +107,16 @@ st.markdown("""
     </div>
     """, unsafe_allow_html=True)
 
-# --- CONTROLS SECTION (Columns auto-stack on Mobile) ---
+# --- CONTROLS SECTION ---
 col1, col2 = st.columns(2)
 
 with col1:
-    selected_language = st.selectbox("🌐 Target Language", {
-        "English": "en", "Hindi": "hi", "Bengali": "bn", "Marathi": "mr",
-        "Tamil": "ta", "Telugu": "te", "Gujarati": "gu", "Punjabi": "pa",
-        "Kannada": "kn", "Malayalam": "ml", "Spanish": "es", "French": "fr",
-        "German": "de", "Chinese (Simplified)": "zh-CN", "Japanese": "ja",
-        "Russian": "ru", "Arabic": "ar"
-    })
+    selected_language = st.selectbox("🌐 Target Language", [
+        "English", "Hindi", "Bengali", "Marathi", "Tamil", "Telugu", 
+        "Gujarati", "Punjabi", "Kannada", "Malayalam", "Spanish", 
+        "French", "German", "Chinese (Simplified)", "Japanese", 
+        "Russian", "Arabic"
+    ])
 
 with col2:
     scenario = st.selectbox("🎯 Exploration Scenario", [
@@ -182,7 +172,6 @@ scenario_prompts = {
 uploaded_file = st.file_uploader("📤 Upload a Landmark Photo", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
-    # Process & compress image for fast performance
     compressed_img, compressed_bytes = process_and_compress_image(uploaded_file)
     img_base64 = get_image_base64(compressed_img)
 
@@ -202,17 +191,15 @@ if submit:
         st.warning("Please upload a photo first to analyze!")
     else:
         try:
-            # Compress image before sending payload to API
             _, compressed_bytes = process_and_compress_image(uploaded_file)
             image_data = input_image_setup(compressed_bytes)
             prompt = scenario_prompts[scenario]
             
-            with st.spinner(f"⚡ Fast-analyzing landmark..."):
-                description = get_gemini_response(image_data, prompt)
-                translated = translate_text(description, selected_language)
+            with st.spinner(f"⚡ Analyzing landmark in {selected_language}..."):
+                description = get_gemini_response(image_data, prompt, selected_language)
 
-                st.session_state.result = translated
-                st.session_state.history.append(translated)
+                st.session_state.result = description
+                st.session_state.history.append(description)
 
         except Exception as e:
             st.error(f"⚠️ Error: {str(e)}")
