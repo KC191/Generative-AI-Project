@@ -35,7 +35,7 @@ def input_image_setup(uploaded_file):
 def translate_text(text, target_lang):
     if target_lang == "en":
         return text
-    return GoogleTranslator(source='auto', target=target_lang).translate(text)
+    return GoogleTranslator(source='auto', target=target_lang.lower()).translate(text)
 
 def get_image_base64(img):
     buffered = BytesIO()
