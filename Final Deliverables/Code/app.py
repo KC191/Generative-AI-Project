@@ -35,7 +35,7 @@ def input_image_setup(uploaded_file):
 def translate_text(text, target_lang):
     if target_lang == "en":
         return text
-    return GoogleTranslator(source='auto', target=target_lang.lower()).translate(text)
+    return GoogleTranslator(source='auto', target=target_lang).translate(text)
 
 def get_image_base64(img):
     buffered = BytesIO()
@@ -46,34 +46,7 @@ def get_image_base64(img):
 if 'history' not in st.session_state:
     st.session_state.history = []
 
-# --- SIDEBAR ---
-st.sidebar.title("🧭 Explorer Panel")
-
-selected_language = st.sidebar.selectbox("🌐 Language", {
-    "English": "en", "Hindi": "hi", "Bengali": "bn", "Marathi": "mr",
-    "Tamil": "ta", "Telugu": "te", "Gujarati": "gu", "Punjabi": "pa",
-    "Kannada": "kn", "Malayalam": "ml", "Spanish": "es", "French": "fr",
-    "German": "de", "Chinese (Simplified)": "zh-cn", "Japanese": "ja",
-    "Russian": "ru", "Arabic": "ar"
-})
-
-st.sidebar.markdown("---")
-scenario = st.sidebar.selectbox("🎯 Scenario", [
-    "Discovering Iconic Landmarks (Traveler)",
-    "Tour Guide Assistance",
-    "Virtual Tours and Educational Resources",
-    "Personal Exploration and Curiosity"
-])
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("📜 Past Descriptions")
-if st.session_state.history:
-    for i, past in enumerate(reversed(st.session_state.history[-5:]), 1):
-        st.sidebar.markdown(f"**{i}.** {past[:100]}...")
-else:
-    st.sidebar.write("No history yet.")
-
-# --- MAIN CONTENT ---
+# --- MAIN HEADER ---
 st.markdown("""
     <div style="text-align:center">
         <h1 style="color:#2c3e50;">🗺️ Gemini Landmark Explorer</h1>
@@ -82,6 +55,37 @@ st.markdown("""
     """, unsafe_allow_html=True)
 st.markdown("---")
 
+# --- CONTROLS SECTION (MOBILE FRIENDLY) ---
+col1, col2 = st.columns(2)
+
+with col1:
+    selected_language = st.selectbox("🌐 Language", {
+        "English": "en", "Hindi": "hi", "Bengali": "bn", "Marathi": "mr",
+        "Tamil": "ta", "Telugu": "te", "Gujarati": "gu", "Punjabi": "pa",
+        "Kannada": "kn", "Malayalam": "ml", "Spanish": "es", "French": "fr",
+        "German": "de", "Chinese (Simplified)": "zh-CN", "Japanese": "ja",
+        "Russian": "ru", "Arabic": "ar"
+    })
+
+with col2:
+    scenario = st.selectbox("🎯 Scenario", [
+        "Discovering Iconic Landmarks (Traveler)",
+        "Tour Guide Assistance",
+        "Virtual Tours and Educational Resources",
+        "Personal Exploration and Curiosity"
+    ])
+
+# --- SIDEBAR (HISTORY ONLY) ---
+with st.sidebar:
+    st.title("🧭 Explorer Panel")
+    st.subheader("📜 Past Descriptions")
+    if st.session_state.history:
+        for i, past in enumerate(reversed(st.session_state.history[-5:]), 1):
+            st.markdown(f"**{i}.** {past[:100]}...")
+    else:
+        st.write("No history yet.")
+
+# --- SCENARIO PROMPTS ---
 scenario_prompts = {
     "Discovering Iconic Landmarks (Traveler)": """
         You are a helpful travel assistant. Analyze the image of the landmark and describe:
@@ -113,7 +117,7 @@ scenario_prompts = {
     """
 }
 
-# Upload Section
+# --- UPLOAD & PROCESSING SECTION ---
 uploaded_file = st.file_uploader("📤 Upload a Landmark Photo", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
@@ -124,12 +128,12 @@ if uploaded_file:
         f"""
         <div style="display: flex; justify-content: center; margin: 20px 0;">
             <img src="data:image/png;base64,{img_base64}" 
-                 style="max-height: 300px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);" />
+                 style="max-width: 100%; height: auto; max-height: 300px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);" />
         </div>
         """, unsafe_allow_html=True
     )
 
-    if st.button("🔍 Discover Landmark Info"):
+    if st.button("🔍 Discover Landmark Info", use_container_width=True):
         try:
             image_data = input_image_setup(uploaded_file)
             prompt = scenario_prompts[scenario]
@@ -148,7 +152,8 @@ if uploaded_file:
                     label="📥 Download Description",
                     data=translated,
                     file_name=filename,
-                    mime="text/plain"
+                    mime="text/plain",
+                    use_container_width=True
                 )
         except Exception as e:
             st.error(f"⚠️ Error: {str(e)}")
